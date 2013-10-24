@@ -250,6 +250,22 @@ alterZeroFlag_ :: (Bool -> Bool) -> Cpu s ()
 alterZeroFlag_ f = getZeroFlag >>= setZeroFlag . f
 
 --
+getAddFlag :: Cpu s Bool
+getAddFlag = getOperandFlagBit fReg 6
+
+--
+setAddFlag :: Bool -> Cpu s ()
+setAddFlag = setFlag 0x40
+
+--
+alterAddFlag :: (Bool -> Bool) -> Cpu s Bool
+alterAddFlag f = getAddFlag >>= setAddFlag . f >> getAddFlag
+
+--
+alterAddFlag_ :: (Bool -> Bool) -> Cpu s ()
+alterAddFlag_ f = getAddFlag >>= setAddFlag . f
+
+--
 getCarryFlag :: Cpu s Bool
 getCarryFlag = getOperandFlagBit fReg 4
 

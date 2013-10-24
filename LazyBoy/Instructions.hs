@@ -1,6 +1,7 @@
 module LazyBoy.Instructions where
 
-import Data.Bits
+import Prelude hiding (and, or)
+import Data.Bits hiding (bit)
 import Data.STRef
 import LazyBoy.Cpu
 
@@ -66,28 +67,29 @@ execute op
 	| op == 0x26 = fetchImmediate >>= ldI hReg
 	| op == 0x28 = getZeroFlag >>= (\z -> fetchImmediate >>= jr z)
 	| op == 0x29 = getHl >>= addHL
-	| op == 0x2A = getHl >>= ldAM >>= (\x -> alterHl (+ 1) >> return x)
+	| op == 0x2A = getHl >>= ldRM aReg >> alterHl_ ((+) 1) >> return 8
 	| op == 0x2B = decW hReg lReg
 	| op == 0x2C = incR lReg
 	| op == 0x2D = decR lReg
 	| op == 0x2E = fetchImmediate >>= ldI lReg
 	| op == 0x38 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
 	| op == 0x39 = getSp >>= addHL
-	| op == 0x46 = ldRM bReg
+	| op == 0x3A = getHl >>= ldRM aReg >> alterHl_ ((-) 1) >> return 8
+	| op == 0x46 = getHl >>= ldRM bReg
 	| op <= 0x47 = ldRR bReg $ getRegByOpCode op
-	| op == 0x4E = ldRM cReg
+	| op == 0x4E = getHl >>= ldRM cReg
 	| op <= 0x4F = ldRR cReg $ getRegByOpCode op
-	| op == 0x56 = ldRM dReg
+	| op == 0x56 = getHl >>= ldRM dReg
 	| op <= 0x57 = ldRR dReg $ getRegByOpCode op
-	| op == 0x5E = ldRM eReg
+	| op == 0x5E = getHl >>= ldRM eReg
 	| op <= 0x5F = ldRR eReg $ getRegByOpCode op
-	| op == 0x66 = ldRM hReg
+	| op == 0x66 = getHl >>= ldRM hReg
 	| op <= 0x67 = ldRR hReg $ getRegByOpCode op
-	| op == 0x6E = ldRM lReg
+	| op == 0x6E = getHl >>= ldRM lReg
 	| op <= 0x6F = ldRR lReg $ getRegByOpCode op
 	| op == 0x76 = halt
-	| op <= 0x77 = ldMR $ getRegByOpCode op
-	| op == 0x7E = ldRM aReg
+	| op <= 0x77 = getHl >>= \hl -> ldMR hl (getRegByOpCode op)
+	| op == 0x7E = getHl >>= ldRM aReg
 	| op <= 0x7F = ldRR aReg $ getRegByOpCode op
 	| op == 0x86 = getHl >>= readMemory >>= add
 	| op <= 0x87 = getVarByOpCode op >>= add
@@ -97,12 +99,14 @@ execute op
 	| op <= 0x97 = getVarByOpCode op >>= sub
 	| op == 0x9E = getHl >>= readMemory >>= sbc
 	| op <= 0x9F = getVarByOpCode op >>= sbc 
-	| op == 0xA6 = andM
-	| op <= 0xA7 = andR $ getRegByOpCode op
-	| op == 0xAE = xorM
-	| op <= 0xAF = xorR $ getRegByOpCode op
-	| op == 0xB6 = orM
-	| op <= 0xB7 = orR $ getRegByOpCode op
+	| op == 0xA6 = getHl >>= readMemory >>= and'
+	| op <= 0xA7 = getVarByOpCode op >>= and'
+	| op == 0xAE = getHl >>= readMemory >>= xor'
+	| op <= 0xAF = getVarByOpCode op >>= xor'
+	| op == 0xB6 = getHl >>= readMemory >>= or'
+	| op <= 0xB7 = getVarByOpCode op >>= or'
+	| op == 0xB6 = getHl >>= readMemory >>= cp >> return 8
+	| op <= 0xBF = getVarByOpCode op >>= cp 
 	| op == 0xC0 = getZeroFlag >>= \z -> ret (20, 8) (not z)
 	| op == 0xC1 = pop bReg cReg
 	| op == 0xC2 = getZeroFlag >>= (\z -> fetchWideImmediate >>= jp (16, 12) (not z))
@@ -117,30 +121,93 @@ execute op
 	| op == 0xCB = fetch >>= executeCB
 	| op == 0xCC = getZeroFlag >>= (\z -> fetchWideImmediate >>= call (24, 12) z)
 	| op == 0xCD = fetchWideImmediate >>= call (24, 24) True
+	| op == 0xCE = fetchImmediate >>= adc
 	| op == 0xCF = rst 0x08
 	| op == 0xD0 = getCarryFlag >>= \c -> ret (20, 8) (not c)
 	| op == 0xD1 = pop dReg eReg
 	| op == 0xD2 = getCarryFlag >>= (\c -> fetchWideImmediate >>= jp (16, 12) (not c))
 	| op == 0xD4 = getCarryFlag >>= (\c -> fetchWideImmediate >>= call (24, 12) (not c))
 	| op == 0xD5 = getDe >>= push
+	| op == 0xD6 = fetchImmediate >>= sub
 	| op == 0xD7 = rst 0x10
 	| op == 0xD8 = getCarryFlag >>= \c -> ret (20, 8) c
 	| op == 0xD8 = reti
 	| op == 0xDA = getCarryFlag >>= (\c -> fetchWideImmediate >>= jp (16, 12) c)
 	| op == 0xDC = getCarryFlag >>= (\c -> fetchWideImmediate >>= call (24, 12) c)
+	| op == 0xCE = fetchImmediate >>= sbc
 	| op == 0xDF = rst 0x18
+	| op == 0xE0 = fetchImmediate >>= \n -> ldMR (0xFF00 + fromIntegral n) aReg >> return 12
 	| op == 0xE1 = pop hReg lReg
+	| op == 0xE2 = getVar cReg >>= \n -> ldMR (0xFF00 + fromIntegral n) aReg >> return 12
 	| op == 0xE5 = getHl >>= push
+	| op == 0xE6 = fetchImmediate >>= and'
 	| op == 0xE7 = rst 0x20
 	| op == 0xE9 = getHl >>= jp (4, 4) True
+	| op == 0xEE = fetchImmediate >>= xor'
 	| op == 0xEF = rst 0x28
+	| op == 0xF0 = fetchImmediate >>= \n -> ldRM aReg (0xFF00 + fromIntegral n) >> return 12
 	| op == 0xF1 = pop aReg fReg
+	| op == 0xF2 = getVar cReg >>= \n -> ldRM aReg (0xFF00 + fromIntegral n) >> return 12
 	| op == 0xF5 = getWideVar aReg fReg >>= push
+	| op == 0xF6 = fetchImmediate >>= or'
 	| op == 0xF7 = rst 0x30
+	| op == 0xF8 = getSp >>= (\sp -> fetchImmediate >>= \x -> setHl (sp + fromIntegral x)) >> return 12
+	| op == 0xF9 = getHl >>= setSp >> return 8
+	| op == 0xFE = fetchImmediate >>= cp >> return 8
 	| op == 0xFF = rst 0x38
 
 executeCB :: OpCode -> Cpu s Int
-executeCB = undefined
+executeCB op 
+	| op == 0x36 = getHl >>= flip alterMemory swap >> return 16
+	| op <= 0x37 = swapR $ getRegByOpCode op
+	| op == 0x46 = getHl >>= readMemory >>= bit 0 >> return 12
+	| op <= 0x47 = getVarByOpCode op >>= bit 0
+	| op == 0x4E = getHl >>= readMemory >>= bit 1 >> return 12
+	| op <= 0x4F = getVarByOpCode op >>= bit 1
+	| op == 0x56 = getHl >>= readMemory >>= bit 2 >> return 12
+	| op <= 0x57 = getVarByOpCode op >>= bit 2
+	| op == 0x5E = getHl >>= readMemory >>= bit 3 >> return 12
+	| op <= 0x5F = getVarByOpCode op >>= bit 3
+	| op == 0x66 = getHl >>= readMemory >>= bit 4 >> return 12
+	| op <= 0x67 = getVarByOpCode op >>= bit 4
+	| op == 0x6E = getHl >>= readMemory >>= bit 5 >> return 12
+	| op <= 0x6F = getVarByOpCode op >>= bit 5
+	| op == 0x76 = getHl >>= readMemory >>= bit 6 >> return 12
+	| op <= 0x77 = getVarByOpCode op >>= bit 6
+	| op == 0x7E = getHl >>= readMemory >>= bit 7 >> return 12
+	| op <= 0x7F = getVarByOpCode op >>= bit 7
+	| op == 0x86 = getHl >>= (\addr -> alterMemory addr (res 0)) >> return 16
+	| op <= 0x87 = alterVar_ (getRegByOpCode op) (res 0) >> return 8
+	| op == 0x8E = getHl >>= (\addr -> alterMemory addr (res 1)) >> return 16
+	| op <= 0x8F = alterVar_ (getRegByOpCode op) (res 1) >> return 8
+	| op == 0x96 = getHl >>= (\addr -> alterMemory addr (res 2)) >> return 16
+	| op <= 0x97 = alterVar_ (getRegByOpCode op) (res 2) >> return 8
+	| op == 0x9E = getHl >>= (\addr -> alterMemory addr (res 3)) >> return 16
+	| op <= 0x9F = alterVar_ (getRegByOpCode op) (res 3) >> return 8
+	| op == 0xA6 = getHl >>= (\addr -> alterMemory addr (res 4)) >> return 16
+	| op <= 0xA7 = alterVar_ (getRegByOpCode op) (res 4) >> return 8
+	| op == 0xAE = getHl >>= (\addr -> alterMemory addr (res 5)) >> return 16
+	| op <= 0xAF = alterVar_ (getRegByOpCode op) (res 5) >> return 8
+	| op == 0xB6 = getHl >>= (\addr -> alterMemory addr (res 6)) >> return 16
+	| op <= 0xB7 = alterVar_ (getRegByOpCode op) (res 6) >> return 8
+	| op == 0xBE = getHl >>= (\addr -> alterMemory addr (res 7)) >> return 16
+	| op <= 0xBF = alterVar_ (getRegByOpCode op) (res 7) >> return 8
+	| op == 0xC6 = getHl >>= (\addr -> alterMemory addr (set 0)) >> return 16
+	| op <= 0xC7 = alterVar_ (getRegByOpCode op) (set 0) >> return 8
+	| op == 0xCE = getHl >>= (\addr -> alterMemory addr (set 1)) >> return 16
+	| op <= 0xCF = alterVar_ (getRegByOpCode op) (set 1) >> return 8
+	| op == 0xD6 = getHl >>= (\addr -> alterMemory addr (set 2)) >> return 16
+	| op <= 0xD7 = alterVar_ (getRegByOpCode op) (set 2) >> return 8
+	| op == 0xDE = getHl >>= (\addr -> alterMemory addr (set 3)) >> return 16
+	| op <= 0xDF = alterVar_ (getRegByOpCode op) (set 3) >> return 8
+	| op == 0xE6 = getHl >>= (\addr -> alterMemory addr (set 4)) >> return 16
+	| op <= 0xE7 = alterVar_ (getRegByOpCode op) (set 4) >> return 8
+	| op == 0xEE = getHl >>= (\addr -> alterMemory addr (set 5)) >> return 16
+	| op <= 0xEF = alterVar_ (getRegByOpCode op) (set 5) >> return 8
+	| op == 0xF6 = getHl >>= (\addr -> alterMemory addr (set 6)) >> return 16
+	| op <= 0xF7 = alterVar_ (getRegByOpCode op) (set 6) >> return 8
+	| op == 0xFE = getHl >>= (\addr -> alterMemory addr (set 7)) >> return 16
+	| op <= 0xFF = alterVar_ (getRegByOpCode op) (set 7) >> return 8
 
 {- Arithmetic -}
 
@@ -177,34 +244,28 @@ swap x = ((x .&. 0x0F) `shiftL` 4) .|. ((x .&. 0xF0) `shiftR` 4)
 swapR :: Register s -> Cpu s Int
 swapR x = alterVar x swap >> setCarryFlag False >> setHalfCarryFlag False >> return 8
 
-swapM :: Cpu s Int
-swapM = getHl >>= flip alterMemory swap >> setCarryFlag False >> setHalfCarryFlag False >> return 16
-
 cpl :: Cpu s Int
 cpl = alterVar_ aReg (`xor` 0xFF) >> return 4
 
 {- Logical -} 
 
-andR :: Register s -> Cpu s Int
-andR x = getVar x >>= alterAccumulator . (.&.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag True >> return 4
+and' :: Operand -> Cpu s Int
+and' x = return x >>= alterAccumulator . (.&.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag True >> return 4
 
-andM :: Cpu s Int
-andM = getHl >>= readMemory >>= alterAccumulator . (.&.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag True >> return 8
+xor' :: Operand -> Cpu s Int
+xor' x = return x >>= alterAccumulator . xor >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
 
-xorR :: Register s -> Cpu s Int
-xorR x = getVar x >>= alterAccumulator . xor >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
-
-xorM :: Cpu s Int
-xorM = getHl >>= readMemory >>= alterAccumulator . xor >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 8
-
-orR :: Register s -> Cpu s Int
-orR x = getVar x >>= alterAccumulator . (.|.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
-
-orM :: Cpu s Int
-orM = getHl >>= readMemory >>= alterAccumulator . (.|.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 8
+or' :: Operand -> Cpu s Int
+or' x = return x >>= alterAccumulator . (.|.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
 
 halt :: Cpu s Int
 halt = return 4
+
+cp :: Operand -> Cpu s Int
+cp x = getVar aReg >>= (\a -> case () of
+			_ | a - x == 0 -> setVar fReg 0xC0
+			  | a - x <  0 -> setVar fReg 0x50
+			  | otherwise  -> setVar fReg 0x60) >> return 4
 
 {- Rotate / Shift -}
 
@@ -234,11 +295,11 @@ ldAM x = readMemory x >>= setVar aReg >> return 8
 ldRR :: Register s -> Register s -> Cpu s Int
 ldRR x y = getVar y >>= setVar x >> return 4
 
-ldRM :: Register s -> Cpu s Int
-ldRM x = getHl >>= readMemory >>= setVar x >> return 8
+ldRM :: Register s -> Address -> Cpu s Int
+ldRM x a = readMemory a >>= setVar x >> return 8
 
-ldMR :: Register s -> Cpu s Int
-ldMR x = getHl >>= (\addr -> getVar x >>= writeMemory addr) >> return 8
+ldMR :: Address -> Register s -> Cpu s Int
+ldMR a x = getVar x >>= writeMemory a >> return 8
 
 {- 16 Bit Loadcommands -}
 
@@ -247,6 +308,17 @@ pop x y = getSp >>= readWideMemory >>= setWideVar x y >> alterSp (+ 2) >> return
 
 push :: WideOperand -> Cpu s Int
 push x = alterSp (flip (-) 2) >>= writeWideMemory x >> return 16
+
+{- Bit operations -}
+
+set :: Int -> Operand -> Operand
+set n r = setBit r n
+
+res :: Int -> Operand -> Operand
+res n r = clearBit r n 
+
+bit :: Int -> Operand -> Cpu s Int
+bit n r = setHalfCarryFlag True >> setAddFlag False >> setZeroFlag (testBit r n) >> return 8
 
 {- Jump commands -}
 
