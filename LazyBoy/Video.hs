@@ -20,7 +20,7 @@ getLcdEnabled = readMemory lcdControlAddress >>= getOperandFlagBit 7
 
 --
 setLcdEnabled :: Bool -> Cpu s ()
-setLcdEnabled = readMemory lcdControlAddress >>= (\x -> writeMemory lcdControlAddress $ x .|.)
+setLcdEnabled = readMemory lcdControlAddress >>= writeMemory lcdControlAddress . (.|.) x
 
 --
 getWindowDisplayEnabled :: Cpu s Bool

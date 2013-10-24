@@ -1,6 +1,6 @@
-
 import Control.Monad.ST
 import Data.ByteString as B (readFile, unpack)
+import Graphics.Gloss as G
 import System.Environment (getArgs)
 
 import LazyBoy.Cpu
@@ -8,13 +8,14 @@ import LazyBoy.Cpu
 done :: IO ()
 done = putStrLn "[Done]"
 
+-- Write the given ROM data into the cpu's memory starting
+-- at address 0x00
 loadRomIntoCpu :: [Operand] -> Cpu s ()
-loadRomIntoCpu d = writeMemoryRegion 0x00 d
+loadRomIntoCpu = writeMemoryRegion 0x00
 
+-- Load the given ROM file and unpack it into single bytes
 loadRom :: String -> IO [Operand]
-loadRom f = do
-	input <- B.readFile f
-	return $ B.unpack input
+loadRom f = B.readFile f >>= \s -> return (B.unpack s)
 
 main :: IO ()
 main = do
@@ -32,7 +33,9 @@ main = do
 
 	putStr "Loading ROM data into virtual environment..."
 	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData)
-	let result = runST $ loadedCpu
+	let result = runST loadedCpu
 	done
 
 	putStrLn $ "Loaded value: " ++ show loadedCpu
+
+	G.display (G.InWindow "LazyBoy" (800, 600) (50, 50)) (G.makeColor 1.0 0.0 0.0 0.0) G.Blank

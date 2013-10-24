@@ -23,7 +23,7 @@ instance Monad (Cpu s) where
 
 --
 instance MonadReader (CpuEnv s) (Cpu s) where
-	ask       = Cpu $ return
+	ask       = Cpu return
 	local f m = Cpu $ runCpu m . f
 
 --
@@ -73,6 +73,7 @@ type Address     = W.Word16
 type Pixel       = W.Word32 
 type Status      = W.Word8
 type Memory s    = STUArray s Address Operand
+type Register s  = (CpuEnv s -> STRef s Operand)
 
 toAddress :: Operand -> Address
 toAddress = fromIntegral
@@ -145,8 +146,8 @@ alterPc = alterVar pc
 --
 getWideVar :: (CpuEnv s -> STRef s Operand) -> (CpuEnv s -> STRef s Operand) -> Cpu s WideOperand
 getWideVar x y = do
-	x' <- (fromIntegral <$> getVar x)
-	y' <- (fromIntegral <$> getVar y)
+	x' <- fromIntegral <$> getVar x
+	y' <- fromIntegral <$> getVar y
 	return $ (x' `shiftL` 8) .|. y'
 
 --
@@ -226,7 +227,7 @@ getFlag mask = do
 setFlag :: Operand -> Bool -> Cpu s ()
 setFlag mask f = do
 	x <- getVar fReg
-	if f then setVar fReg $ x .|. mask else setVar fReg $ x .&. complement mask
+	setVar fReg $ if f then x .|. mask else x .&. complement mask
 
 --
 getOperandFlagBit :: (CpuEnv s -> STRef s Operand) -> Int -> Cpu s Bool
@@ -250,11 +251,18 @@ alterZeroFlag_ f = getZeroFlag >>= setZeroFlag . f
 
 --
 getCarryFlag :: Cpu s Bool
-getCarryFlag = getFlag 0x10
+getCarryFlag = getOperandFlagBit fReg 4
 
 --
 setCarryFlag :: Bool -> Cpu s ()
 setCarryFlag = setFlag 0x10
+
+--
+setHalfCarryFlag :: Bool -> Cpu s ()
+setHalfCarryFlag = setFlag 0x40
+
+checkAndSetZeroFlag :: Operand -> Cpu s ()
+checkAndSetZeroFlag x = setZeroFlag $ x == 0
 
 --
 push :: Operand -> Cpu s ()
@@ -311,7 +319,7 @@ writeMemoryRegion addr (op:ops) = writeMemory addr op >> writeMemoryRegion (addr
 readMemoryRegion :: Address -> WideOperand -> Cpu s [Operand]
 readMemoryRegion addr n = sequence $ readMemoryRegion' addr n
 	where readMemoryRegion' _    0 = []
-	      readMemoryRegion' addr' n' = (readMemory addr') : readMemoryRegion' (addr' + 1) (n' - 1) 
+	      readMemoryRegion' addr' n' = readMemory addr' : readMemoryRegion' (addr' + 1) (n' - 1) 
 
 --
 fetch :: Cpu s OpCode 
@@ -321,9 +329,24 @@ fetch = do
 	readMemory op
 
 --
+fetchImmediate :: Cpu s Operand 
+fetchImmediate = do
+	op <- getPc
+	setPc $ op + 1
+	readMemory op
+
+--
+fetchWideImmediate :: Cpu s WideOperand
+fetchWideImmediate = do
+	op <- getPc
+	u <- readMemory op
+	l <- readMemory $ op + 1
+	setPc $ op + 2
+	return $ (fromIntegral $ u `shiftL` 8) .|. (fromIntegral l)
+
+--
 initCpu :: ST s (CpuEnv s)
-initCpu = do
-    return CpuEnv
+initCpu = return CpuEnv
         `ap` newSTRef 0x0                    -- a
         `ap` newSTRef 0x0                    -- b
         `ap` newSTRef 0x0                    -- c
