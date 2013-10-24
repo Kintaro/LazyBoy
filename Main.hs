@@ -4,9 +4,14 @@ import Graphics.Gloss as G
 import System.Environment (getArgs)
 
 import LazyBoy.Cpu
+import LazyBoy.Instructions
 
 done :: IO ()
 done = putStrLn "[Done]"
+
+changeEndian [] = []
+changeEndian (x:y:rest) = y:x:(changeEndian rest)
+changeEndian [x] = [x]
 
 -- Write the given ROM data into the cpu's memory starting
 -- at address 0x00
@@ -32,10 +37,10 @@ main = do
 	done
 
 	putStr "Loading ROM data into virtual environment..."
-	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData)
-	let result = runST loadedCpu
+	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData >> setPc 0x100 >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute)
+	let result = runST loadedCpu 
 	done
 
-	putStrLn $ "Loaded value: " ++ show loadedCpu
+	putStrLn $ "Loaded value: " ++ show result
 
 	G.display (G.InWindow "LazyBoy" (800, 600) (50, 50)) (G.makeColor 1.0 0.0 0.0 0.0) G.Blank

@@ -2,6 +2,7 @@
 
 module LazyBoy.Cpu where
 
+import Debug.Trace
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
@@ -55,6 +56,7 @@ data CpuEnv s = CpuEnv
 	   ,fReg   :: STRef s Status
 	   ,sp     :: STRef s Address
 	   ,pc     :: STRef s Address
+	   ,ime    :: STRef s Bool
 	   ,cartridgeMem :: Memory s
 	   ,videoRam     :: Memory s
 	   ,bankRam      :: Memory s
@@ -315,7 +317,7 @@ readWideMemory :: Address -> Cpu s WideOperand
 readWideMemory addr = do
 	h <- readMemory $ baseSp + addr
 	l <- readMemory $ baseSp + addr + 1
-	return $ (fromIntegral $ h `shiftL` 8) .|. (fromIntegral l)
+	return $ fromIntegral $ (h `shiftL` 8) .|. fromIntegral l
 
 --
 writeMemory :: Address -> Operand -> Cpu s ()
@@ -357,26 +359,20 @@ readMemoryRegion addr n = sequence $ readMemoryRegion' addr n
 
 --
 fetch :: Cpu s OpCode 
-fetch = do
-	op <- getPc
-	setPc $ op + 1
-	readMemory op
+fetch = getPc >>= readMemory >>= (\x -> alterPc (+ 1) >> return x)
 
 --
 fetchImmediate :: Cpu s Operand 
-fetchImmediate = do
-	op <- getPc
-	setPc $ op + 1
-	readMemory op
+fetchImmediate = getPc >>= readMemory >>= (\x -> alterPc (+ 1) >> return x)
 
 --
 fetchWideImmediate :: Cpu s WideOperand
 fetchWideImmediate = do
 	op <- getPc
-	u <- readMemory op
-	l <- readMemory $ op + 1
+	l <- readMemory op 
+	u <- readMemory $ op + 1
 	setPc $ op + 2
-	return $ (fromIntegral $ u `shiftL` 8) .|. (fromIntegral l)
+	return $ ((fromIntegral u :: WideOperand) `shiftL` 8) .|. (fromIntegral l :: WideOperand)
 
 --
 initCpu :: ST s (CpuEnv s)
@@ -390,7 +386,8 @@ initCpu = return CpuEnv
         `ap` newSTRef 0x0                    -- l
         `ap` newSTRef 0x0                    -- f
         `ap` newSTRef 0xFF                   -- SP
-        `ap` newSTRef 0x8000                 -- PC
+        `ap` newSTRef 0x0                    -- PC
+        `ap` newSTRef True                   -- IME
         `ap` newArray (0x0000, 0x7FFF) 0x0   -- Cartridge Memory
         `ap` newArray (0x8000, 0x9FFF) 0x0   -- Video Ram
         `ap` newArray (0xA000, 0xBFFF) 0x0   -- Banked Ram

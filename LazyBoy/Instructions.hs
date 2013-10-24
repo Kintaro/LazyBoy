@@ -1,5 +1,6 @@
 module LazyBoy.Instructions where
 
+import Debug.Trace
 import Prelude hiding (and, or)
 import Data.Bits hiding (bit)
 import Data.STRef
@@ -44,13 +45,14 @@ execute op
 	| op == 0x0C = incR cReg
 	| op == 0x0D = decR cReg
 	| op == 0x0E = fetchImmediate >>= ldI cReg
-	| op == 0x0F = undefined
+	| op == 0x0F = rrca
 	| op == 0x11 = fetchWideImmediate >>= ldWI dReg eReg
 	| op == 0x12 = ldWM dReg eReg
 	| op == 0x13 = incW dReg eReg
 	| op == 0x14 = incR dReg
 	| op == 0x15 = decR dReg
 	| op == 0x16 = fetchImmediate >>= ldI dReg
+	| op == 0x17 = rla
 	| op == 0x18 = fetchImmediate >>= jr True
 	| op == 0x19 = getDe >>= addHL
 	| op == 0x1A = getDe >>= ldAM
@@ -58,6 +60,7 @@ execute op
 	| op == 0x1C = incR eReg
 	| op == 0x1D = decR eReg
 	| op == 0x1E = fetchImmediate >>= ldI eReg
+	| op == 0x1F = rra
 	| op == 0x20 = getZeroFlag >>= (\z -> fetchImmediate >>= jr (not z))
 	| op == 0x21 = fetchWideImmediate >>= ldWI hReg lReg
 	| op == 0x22 = ldWM hReg lReg >>= (\x -> alterHl (+ 1) >> return x)
@@ -67,14 +70,14 @@ execute op
 	| op == 0x26 = fetchImmediate >>= ldI hReg
 	| op == 0x28 = getZeroFlag >>= (\z -> fetchImmediate >>= jr z)
 	| op == 0x29 = getHl >>= addHL
-	| op == 0x2A = getHl >>= ldRM aReg >> alterHl_ ((+) 1) >> return 8
+	| op == 0x2A = getHl >>= ldRM aReg >> alterHl_ (1 +) >> return 8
 	| op == 0x2B = decW hReg lReg
 	| op == 0x2C = incR lReg
 	| op == 0x2D = decR lReg
 	| op == 0x2E = fetchImmediate >>= ldI lReg
 	| op == 0x38 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
 	| op == 0x39 = getSp >>= addHL
-	| op == 0x3A = getHl >>= ldRM aReg >> alterHl_ ((-) 1) >> return 8
+	| op == 0x3A = getHl >>= ldRM aReg >> alterHl_ (flip (-) 1) >> return 8
 	| op == 0x46 = getHl >>= ldRM bReg
 	| op <= 0x47 = ldRR bReg $ getRegByOpCode op
 	| op == 0x4E = getHl >>= ldRM cReg
@@ -148,18 +151,34 @@ execute op
 	| op == 0xF0 = fetchImmediate >>= \n -> ldRM aReg (0xFF00 + fromIntegral n) >> return 12
 	| op == 0xF1 = pop aReg fReg
 	| op == 0xF2 = getVar cReg >>= \n -> ldRM aReg (0xFF00 + fromIntegral n) >> return 12
+	| op == 0xF3 = di
 	| op == 0xF5 = getWideVar aReg fReg >>= push
 	| op == 0xF6 = fetchImmediate >>= or'
 	| op == 0xF7 = rst 0x30
 	| op == 0xF8 = getSp >>= (\sp -> fetchImmediate >>= \x -> setHl (sp + fromIntegral x)) >> return 12
 	| op == 0xF9 = getHl >>= setSp >> return 8
+	| op == 0xFB = ei
 	| op == 0xFE = fetchImmediate >>= cp >> return 8
 	| op == 0xFF = rst 0x38
 
 executeCB :: OpCode -> Cpu s Int
 executeCB op 
+	| op == 0x06 = undefined
+	| op <= 0x07 = rlc (getRegByOpCode op)
+	| op == 0x0E = undefined
+	| op <= 0x0F = rrc (getRegByOpCode op)
+	| op == 0x16 = undefined
+	| op <= 0x17 = rl (getRegByOpCode op)
+	| op == 0x1E = undefined
+	| op <= 0x1F = rr (getRegByOpCode op)
+	| op == 0x26 = undefined
+	| op <= 0x27 = sla (getRegByOpCode op)
+	| op == 0x2E = undefined
+	| op <= 0x2F = sra (getRegByOpCode op)
 	| op == 0x36 = getHl >>= flip alterMemory swap >> return 16
 	| op <= 0x37 = swapR $ getRegByOpCode op
+	| op == 0x3E = undefined
+	| op <= 0x3F = srl (getRegByOpCode op)
 	| op == 0x46 = getHl >>= readMemory >>= bit 0 >> return 12
 	| op <= 0x47 = getVarByOpCode op >>= bit 0
 	| op == 0x4E = getHl >>= readMemory >>= bit 1 >> return 12
@@ -212,19 +231,19 @@ executeCB op
 {- Arithmetic -}
 
 add :: Operand -> Cpu s Int
-add x = return x >>= alterAccumulator . (+) >>= checkAndSetZeroFlag >> return 4
+add x = (alterAccumulator . (+)) x >>= checkAndSetZeroFlag >> return 4
 
 adc :: Operand -> Cpu s Int
-adc x = return x >>= alterAccumulator . (+) >>= checkAndSetZeroFlag >> return 4
+adc x = (alterAccumulator . (+)) x >>= checkAndSetZeroFlag >> return 4
 
 addHL :: WideOperand -> Cpu s Int
 addHL x = alterHl_ (+ x) >> return 8
 
 sub :: Operand -> Cpu s Int
-sub x = return x >>= alterAccumulator . (+) >>= checkAndSetZeroFlag >> return 4
+sub x = (alterAccumulator . (-)) x >>= checkAndSetZeroFlag >> return 4
 
 sbc :: Operand -> Cpu s Int
-sbc x = return x >>= alterAccumulator . (+) >>= checkAndSetZeroFlag >> return 4
+sbc x = (alterAccumulator . (-)) x >>= checkAndSetZeroFlag >> return 4
 
 incW :: Register s -> Register s -> Cpu s Int
 incW x y = alterWideVar_ x y (+ 1) >> return 8
@@ -250,13 +269,13 @@ cpl = alterVar_ aReg (`xor` 0xFF) >> return 4
 {- Logical -} 
 
 and' :: Operand -> Cpu s Int
-and' x = return x >>= alterAccumulator . (.&.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag True >> return 4
+and' x = (alterAccumulator . (.&.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag True >> return 4
 
 xor' :: Operand -> Cpu s Int
-xor' x = return x >>= alterAccumulator . xor >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
+xor' x = (alterAccumulator . xor) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
 
 or' :: Operand -> Cpu s Int
-or' x = return x >>= alterAccumulator . (.|.) >>= checkAndSetZeroFlag >> setCarryFlag False >> setHalfCarryFlag False >> return 4
+or' x = (alterAccumulator . (.|.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
 
 halt :: Cpu s Int
 halt = return 4
@@ -269,11 +288,44 @@ cp x = getVar aReg >>= (\a -> case () of
 
 {- Rotate / Shift -}
 
+shiftWithCarry :: Register s -> Int -> (Operand -> Int -> Operand) -> Cpu s Int
+shiftWithCarry r t f = getVar r >>= (\a -> setCarryFlag (testBit a t)) >> alterVar r (`f` 1) >>= checkAndSetZeroFlag >> setAddFlag False >> setHalfCarryFlag False >> return 8
+
+shiftThroughCarry :: Register s -> Int -> Int -> (Operand -> Int -> Operand) -> Cpu s Int
+shiftThroughCarry r t s f = getCarryFlag >>= (\c -> getVar r >>= (\a -> setCarryFlag (testBit a t)) >> alterVar_ r (`f` 1) >> alterVar r (\x -> if c then setBit x s else clearBit x s)) >>= checkAndSetZeroFlag >> setAddFlag False >> setHalfCarryFlag False >> return 8
+
 rlca :: Cpu s Int
-rlca = alterVar_ aReg (`shiftL` 1) >> return 4
+rlca = shiftWithCarry aReg 7 shiftL >> return 4
+
+rla :: Cpu s Int
+rla = shiftThroughCarry aReg 7 0 shiftL >> return 4
 
 rrca :: Cpu s Int
-rrca = alterVar_ aReg (`shiftR` 1) >> return 4
+rrca = shiftWithCarry aReg 0 shiftR >> return 4
+
+rra :: Cpu s Int
+rra = shiftThroughCarry aReg 0 7 shiftR >> return 4
+
+rlc :: Register s -> Cpu s Int
+rlc x = shiftWithCarry x 7 shiftL 
+
+rl :: Register s -> Cpu s Int
+rl x = shiftThroughCarry x 7 0 shiftL
+
+rrc :: Register s -> Cpu s Int
+rrc x = shiftWithCarry x 0 shiftR
+
+rr :: Register s -> Cpu s Int
+rr x = shiftThroughCarry x 0 7 shiftR
+
+sla :: Register s -> Cpu s Int
+sla x = shiftWithCarry x 7 shiftL >> alterVar_ x (`clearBit` 0) >> return 8
+
+sra :: Register s -> Cpu s Int
+sra x = getVar x >>= (\s -> shiftWithCarry x 7 shiftL >> alterVar_ x (`clearBit` 0) >> alterVar_ x (\c -> if testBit s 7 then setBit c 7 else clearBit c 7)) >> return 8
+
+srl :: Register s -> Cpu s Int
+srl x = shiftWithCarry x 0 shiftR >> alterVar_ x (`clearBit` 7) >> return 8
 
 {- Loadcommands -}
 
@@ -338,7 +390,7 @@ call :: (Int, Int) -> Bool -> Address -> Cpu s Int
 call (a, b) f r = if f then alterSp (flip (-) 2) >>= (\addr -> getPc >>= writeWideMemory addr) >> setPc r >> return a else return b
 
 rst :: Address -> Cpu s Int
-rst r = call (16, 16) True r
+rst = call (16, 16) True
 
 {- CPU control -}
 
@@ -350,3 +402,9 @@ ccf = alterCarryFlag_ not >> return 4
 
 scf :: Cpu s Int
 scf = setCarryFlag True >> return 4
+
+di :: Cpu s Int
+di = setVar ime False >> return 4
+
+ei :: Cpu s Int 
+ei = setVar ime True >> return 4
