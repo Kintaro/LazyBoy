@@ -258,6 +258,10 @@ setCarryFlag :: Bool -> Cpu s ()
 setCarryFlag = setFlag 0x10
 
 --
+alterCarryFlag_ :: (Bool -> Bool) -> Cpu s ()
+alterCarryFlag_ f = getCarryFlag >>= setCarryFlag . f
+
+--
 setHalfCarryFlag :: Bool -> Cpu s ()
 setHalfCarryFlag = setFlag 0x40
 
@@ -265,15 +269,15 @@ checkAndSetZeroFlag :: Operand -> Cpu s ()
 checkAndSetZeroFlag x = setZeroFlag $ x == 0
 
 --
-push :: Operand -> Cpu s ()
-push op = do
+pushOperand :: Operand -> Cpu s ()
+pushOperand op = do
 	stackValue <- getSp
 	setSp $ stackValue - 1
 	writeMemory (baseSp + stackValue) op
 
 --
-pull :: Cpu s Operand 
-pull = do
+pullOperand :: Cpu s Operand 
+pullOperand = do
 	stackValue <- alterSp (+ 1)
 	readMemory $ baseSp + stackValue
 
@@ -291,6 +295,13 @@ readMemory addr
 	| otherwise     = readArr intRegister addr
 
 --
+readWideMemory :: Address -> Cpu s WideOperand
+readWideMemory addr = do
+	h <- readMemory $ baseSp + addr
+	l <- readMemory $ baseSp + addr + 1
+	return $ (fromIntegral $ h `shiftL` 8) .|. (fromIntegral l)
+
+--
 writeMemory :: Address -> Operand -> Cpu s ()
 writeMemory addr op
 	| addr < 0x8000 = writeArr cartridgeMem addr op
@@ -302,6 +313,13 @@ writeMemory addr op
 	| addr < 0xFF3C = writeArr ioPorts addr op
 	| addr < 0xFFFF = writeArr internalRam2 addr op
 	| otherwise     = writeArr intRegister addr op
+
+--
+writeWideMemory :: Address -> WideOperand -> Cpu s ()
+writeWideMemory addr op =
+	let h = fromIntegral $ (op .&. 0xF0) `shiftR` 8
+	    l = fromIntegral $ op .&. 0x0F
+	    in writeMemory addr h >> writeMemory (addr + 1) l
 
 --
 alterMemory :: Address -> (Operand -> Operand) -> Cpu s Operand
