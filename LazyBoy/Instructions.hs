@@ -3,6 +3,7 @@ module LazyBoy.Instructions where
 import Debug.Trace
 import Prelude hiding (and, or)
 import Data.Bits hiding (bit)
+import Data.Int as I
 import Data.STRef
 import LazyBoy.Cpu
 
@@ -246,7 +247,7 @@ executeCB op
 add :: Operand -> Cpu s Int
 add x = trace "add" $ do
 	a <- getAccumulator
-	r <- (alterAccumulator . (+)) x
+	r <- (alterAccumulator . add8) x
 	checkAndSetZeroFlag r
 	checkAndSetHalfCarryFlag x a r
 	setAddFlag False
@@ -256,7 +257,7 @@ adc :: Operand -> Cpu s Int
 adc x = trace "adc" $ do
 	a <- getAccumulator
 	v <- getCarryFlag >>= \c -> return (if c then x + 1 else x)
-	r <- (alterAccumulator . (+)) v
+	r <- (alterAccumulator . add8) v
 	checkAndSetZeroFlag r
 	checkAndSetHalfCarryFlag v a r
 	setAddFlag False
@@ -264,7 +265,7 @@ adc x = trace "adc" $ do
 
 addHL :: WideOperand -> Cpu s Int
 addHL x = trace "add" $ do
-	alterHl_ (+ x)
+	alterHl_ (`add16` x)
 	return 8
 
 sub :: Operand -> Cpu s Int
@@ -503,7 +504,12 @@ bit n r = setHalfCarryFlag True >> setAddFlag False >> setZeroFlag (testBit r n)
 {- Jump commands -}
 
 jr :: Bool -> Operand -> Cpu s Int
-jr f r = trace "jr" $ if f then alterPc (+ fromIntegral r) >> return 12 else return 8
+jr f r = trace "jr" $ do
+	if f then do
+		off <- alterPc (`addRelative` r)
+		trace (show off) $ return 12 
+	else 
+		return 8
 
 jp :: (Int, Int) -> Bool -> Address -> Cpu s Int
 jp (a, b) f r = trace "jp" $ if f then setPc r >> return a else return b
@@ -557,3 +563,20 @@ di = trace "di" $ setVar ime False >> return 4
 
 ei :: Cpu s Int 
 ei = trace "ei" $ setVar ime True >> return 4
+
+{- Helper methods -}
+
+add8 :: Operand -> Operand -> Operand
+add8 x y = let x' = fromIntegral x :: I.Int8
+               y' = fromIntegral y :: I.Int8
+               in fromIntegral (x' + y') :: Operand
+
+add16 :: WideOperand -> WideOperand -> WideOperand
+add16 x y = let x' = fromIntegral x :: I.Int16
+                y' = fromIntegral y :: I.Int16
+                in fromIntegral (x' + y') :: WideOperand
+
+addRelative :: WideOperand -> Operand -> WideOperand
+addRelative x y = let x' = fromIntegral x :: I.Int16
+                      y' = fromIntegral (fromIntegral y :: I.Int8) :: I.Int16
+                      in fromIntegral (x' + y') :: WideOperand

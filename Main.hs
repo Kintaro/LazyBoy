@@ -1,3 +1,4 @@
+import Control.Monad
 import Control.Monad.ST
 import Data.ByteString as B (readFile, unpack)
 import Graphics.Gloss as G
@@ -42,7 +43,7 @@ main = do
 
 	putStr "Loading ROM data into virtual environment..."
 	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData >> setPc 0x100 >> executeCpu)
-	runST loadedCpu 
+	runST $ loadedCpu 
 	done
 
 	G.display (G.InWindow "LazyBoy" (800, 600) (50, 50)) (G.makeColor 1.0 0.0 0.0 0.0) G.Blank

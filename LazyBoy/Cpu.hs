@@ -11,6 +11,7 @@ import Data.Array.ST as STArr
 import Data.Bits as B hiding (bit)
 import Data.STRef
 import Data.Word as W
+import Data.Int as I
 
 -- Cpu is handled as a state monad
 newtype Cpu s a = Cpu { runCpu :: CpuEnv s -> ST s a }
@@ -362,19 +363,25 @@ readMemoryRegion addr n = sequence $ readMemoryRegion' addr n
 
 --
 fetch :: Cpu s OpCode 
-fetch = getPc >>= readMemory >>= (\x -> alterPc (+ 1) >> return x)
+fetch = do
+	pc <- getPc
+	x <- readMemory pc
+	alterPc (+ 1)
+	return x
 
 --
 fetchImmediate :: Cpu s Operand 
-fetchImmediate = getPc >>= readMemory >>= (\x -> alterPc (+ 1) >> return x)
+fetchImmediate = do
+	pc <- getPc
+	x <- readMemory pc
+	alterPc (+ 1)
+	return x
 
 --
 fetchWideImmediate :: Cpu s WideOperand
 fetchWideImmediate = do
-	op <- getPc
-	l <- readMemory op 
-	u <- readMemory $ op + 1
-	setPc $ op + 2
+	l <- fetchImmediate
+	u <- fetchImmediate
 	return $ ((fromIntegral u :: WideOperand) `shiftL` 8) .|. (fromIntegral l :: WideOperand)
 
 --
