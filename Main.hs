@@ -22,6 +22,8 @@ loadRomIntoCpu = writeMemoryRegion 0x00
 loadRom :: String -> IO [Operand]
 loadRom f = B.readFile f >>= \s -> return (B.unpack s)
 
+-- Execute the cpu in an endless loop
+executeCpu :: Cpu s a
 executeCpu = fetch >>= execute >> executeCpu
 
 main :: IO ()

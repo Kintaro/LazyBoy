@@ -350,13 +350,31 @@ cpl = trace "cpl" $ do
 {- Logical -} 
 
 and' :: Operand -> Cpu s Int
-and' x = (alterAccumulator . (.&.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag True >> return 4
+and' x = trace "and" $ do
+	a <- (alterAccumulator . (.&.)) x
+	checkAndSetZeroFlag a
+	setAddFlag False
+	setCarryFlag False
+	setHalfCarryFlag True
+	return 4
 
 xor' :: Operand -> Cpu s Int
-xor' x = trace "xor" $ (alterAccumulator . xor) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
+xor' x = trace "xor" $ do
+	a <- (alterAccumulator . xor) x
+	checkAndSetZeroFlag a
+	setAddFlag False
+	setCarryFlag False
+	setHalfCarryFlag False 
+	return 4
 
 or' :: Operand -> Cpu s Int
-or' x = (alterAccumulator . (.|.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
+or' x = trace "or" $ do
+	a <- (alterAccumulator . (.|.)) x
+	checkAndSetZeroFlag a
+	setAddFlag False
+	setCarryFlag False
+	setHalfCarryFlag False
+	return 4
 
 halt :: Cpu s Int
 halt = return 4
