@@ -76,9 +76,9 @@ execute op
 	| op == 0x2D = decR lReg
 	| op == 0x2E = fetchImmediate >>= ldI lReg
 	| op == 0x30 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
-	| op == 0x31 = fetchWideImmediate >>= 
+	| op == 0x31 = fetchWideImmediate >>= setSp >> return 12
 	| op == 0x32 = ldWM hReg lReg >>= (\x -> alterHl (flip (-) 1) >> return x)
-	| op == 0x33 = alterSp (1 +) 
+	| op == 0x33 = alterSp (1 +) >> return 8
 	| op == 0x34 = getHl >>= incM
 	| op == 0x35 = getHl >>= decM
 	| op == 0x36 = getHl >>= (\addr -> fetchImmediate >>= writeMemory addr) >> return 12
@@ -86,7 +86,7 @@ execute op
 	| op == 0x38 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
 	| op == 0x39 = getSp >>= addHL
 	| op == 0x3A = getHl >>= ldRM aReg >> alterHl_ (flip (-) 1) >> return 8
-	| op == 0x3B = alterSp (flip (-) 1)
+	| op == 0x3B = alterSp (flip (-) 1) >> return 8
 	| op == 0x3C = incR aReg
 	| op == 0x3D = decR aReg
 	| op == 0x3E = fetchImmediate >>= ldI aReg
@@ -244,46 +244,105 @@ executeCB op
 {- Arithmetic -}
 
 add :: Operand -> Cpu s Int
-add x = (alterAccumulator . (+)) x >>= checkAndSetZeroFlag >> return 4
+add x = trace "add" $ do
+	a <- getAccumulator
+	r <- (alterAccumulator . (+)) x
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag x a r
+	setAddFlag False
+	return 4
 
 adc :: Operand -> Cpu s Int
-adc x = (alterAccumulator . (+)) x >>= checkAndSetZeroFlag >> return 4
+adc x = trace "adc" $ do
+	a <- getAccumulator
+	v <- getCarryFlag >>= \c -> if c then return (x + 1) else return x
+	r <- (alterAccumulator . (+)) v
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag v a r
+	setAddFlag False
+	return 4
 
 addHL :: WideOperand -> Cpu s Int
-addHL x = alterHl_ (+ x) >> return 8
+addHL x = trace "add" $ do
+	alterHl_ (+ x)
+	return 8
 
 sub :: Operand -> Cpu s Int
-sub x = (alterAccumulator . (-)) x >>= checkAndSetZeroFlag >> return 4
+sub x = trace "sub" $ do
+	a <- getAccumulator
+	r <- (alterAccumulator . (-)) x 
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag x a r
+	setAddFlag True
+	return 4
 
 sbc :: Operand -> Cpu s Int
-sbc x = (alterAccumulator . (-)) x >>= checkAndSetZeroFlag >> return 4
+sbc x = trace "sbc" $ do
+	a <- getAccumulator
+	v <- getCarryFlag >>= \c -> if c then return (x - 1) else return x
+	r <-(alterAccumulator . (-)) v
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag v a r
+	setAddFlag True
+	return 4
 
 incW :: Register s -> Register s -> Cpu s Int
 incW x y = alterWideVar_ x y (+ 1) >> return 8
 
 incM :: Address -> Cpu s Int
-incM addr = alterMemory addr (+ 1) >> return 12
+incM addr = trace "inc" $ do 
+	x <- readMemory addr
+	r <- alterMemory addr (+ 1)
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag x 1 r
+	setAddFlag False
+	return 12
 
 decW :: Register s -> Register s -> Cpu s Int
-decW x y = alterWideVar_ x y (flip (-) 1) >> return 8
+decW x y = trace "dec" $ do
+	alterWideVar_ x y (flip (-) 1) >> return 8
 
 incR :: Register s -> Cpu s Int
-incR x = alterVar x (+ 1) >>= checkAndSetZeroFlag >> return 4
+incR x = trace "inc" $ do
+	v <- getVar x
+	r <- alterVar x (+ 1) 
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag v 1 r
+	setAddFlag False
+	return 4
 
 decR :: Register s -> Cpu s Int
-decR x = alterVar x (flip (-) 1) >>= checkAndSetZeroFlag >> return 4
+decR x = trace "dec" $ do
+	v <- getVar x
+	r <- alterVar x (flip (-) 1)
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag v 1 r
+	setAddFlag True
+	return 4
 
 decM :: Address -> Cpu s Int
-decM addr = alterMemory addr (flip (-) 1) >> return 12
+decM addr = trace "dec" $ do 
+	x <- readMemory addr
+	r <- alterMemory addr (flip (-) 1)
+	checkAndSetZeroFlag r
+	checkAndSetHalfCarryFlag x 1 r
+	setAddFlag True
+	return 12
 
 swap :: Operand -> Operand
 swap x = ((x .&. 0x0F) `shiftL` 4) .|. ((x .&. 0xF0) `shiftR` 4)
 
 swapR :: Register s -> Cpu s Int
-swapR x = alterVar x swap >> setCarryFlag False >> setHalfCarryFlag False >> return 8
+swapR x = trace "swap" $ do
+	alterVar_ x swap
+	setCarryFlag False 
+	setHalfCarryFlag False
+	return 8
 
 cpl :: Cpu s Int
-cpl = alterVar_ aReg (`xor` 0xFF) >> return 4
+cpl = trace "cpl" $ do
+	alterVar_ aReg (`xor` 0xFF)
+	return 4
 
 {- Logical -} 
 
@@ -291,7 +350,7 @@ and' :: Operand -> Cpu s Int
 and' x = (alterAccumulator . (.&.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag True >> return 4
 
 xor' :: Operand -> Cpu s Int
-xor' x = (alterAccumulator . xor) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
+xor' x = trace "xor" $ (alterAccumulator . xor) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
 
 or' :: Operand -> Cpu s Int
 or' x = (alterAccumulator . (.|.)) x >>= checkAndSetZeroFlag >> setAddFlag False >> setCarryFlag False >> setHalfCarryFlag False >> return 4
@@ -341,7 +400,12 @@ sla :: Register s -> Cpu s Int
 sla x = shiftWithCarry x 7 shiftL >> alterVar_ x (`clearBit` 0) >> return 8
 
 sra :: Register s -> Cpu s Int
-sra x = getVar x >>= (\s -> shiftWithCarry x 7 shiftL >> alterVar_ x (`clearBit` 0) >> alterVar_ x (\c -> if testBit s 7 then setBit c 7 else clearBit c 7)) >> return 8
+sra x = trace "sra" $ do
+	v <- getVar x
+	shiftWithCarry x 7 shiftL
+	alterVar_ x (`clearBit` 0)
+	alterVar_ x (\c -> if testBit v 7 then setBit c 7 else clearBit c 7)
+	return 8
 
 srl :: Register s -> Cpu s Int
 srl x = shiftWithCarry x 0 shiftR >> alterVar_ x (`clearBit` 7) >> return 8
@@ -349,28 +413,28 @@ srl x = shiftWithCarry x 0 shiftR >> alterVar_ x (`clearBit` 7) >> return 8
 {- Loadcommands -}
 
 ldWI :: Register s -> Register s -> WideOperand -> Cpu s Int
-ldWI x y v = setWideVar x y v >> return 12
+ldWI x y v = trace "ld" $ setWideVar x y v >> return 12
 
 ldWM :: Register s -> Register s -> Cpu s Int
-ldWM x y = getWideVar x y >>= (\addr -> getVar aReg >>= writeMemory addr) >> return 8
+ldWM x y = trace "ld" $ getWideVar x y >>= (\addr -> getVar aReg >>= writeMemory addr) >> return 8
 
 ldMSP :: Address -> Cpu s Int
-ldMSP x = getSp >>= writeWideMemory x >> return 20
+ldMSP x = trace "ld" $ getSp >>= writeWideMemory x >> return 20
 
 ldI :: Register s -> Operand -> Cpu s Int
-ldI x v = setVar x v >> return 8
+ldI x v = trace "ld" $ setVar x v >> return 8
 
 ldAM :: Address -> Cpu s Int
-ldAM x = readMemory x >>= setVar aReg >> return 8
+ldAM x = trace "ld" $ readMemory x >>= setVar aReg >> return 8
 
 ldRR :: Register s -> Register s -> Cpu s Int
-ldRR x y = getVar y >>= setVar x >> return 4
+ldRR x y = trace "ld" $ getVar y >>= setVar x >> return 4
 
 ldRM :: Register s -> Address -> Cpu s Int
-ldRM x a = readMemory a >>= setVar x >> return 8
+ldRM x a = trace "ld" $ readMemory a >>= setVar x >> return 8
 
 ldMR :: Address -> Register s -> Cpu s Int
-ldMR a x = getVar x >>= writeMemory a >> return 8
+ldMR a x = trace "ld" $ getVar x >>= writeMemory a >> return 8
 
 {- 16 Bit Loadcommands -}
 
@@ -394,16 +458,16 @@ bit n r = setHalfCarryFlag True >> setAddFlag False >> setZeroFlag (testBit r n)
 {- Jump commands -}
 
 jr :: Bool -> Operand -> Cpu s Int
-jr f r = if f then alterPc (+ fromIntegral r) >> return 12 else return 8
+jr f r = trace "jr" $ if f then alterPc (+ fromIntegral r) >> return 12 else return 8
 
 jp :: (Int, Int) -> Bool -> Address -> Cpu s Int
-jp (a, b) f r = if f then setPc r >> return a else return b
+jp (a, b) f r = trace "jp" $ if f then setPc r >> return a else return b
 
 ret :: (Int, Int) -> Bool -> Cpu s Int
-ret (a, b) f = if f then getSp >>= readWideMemory >>= setPc >> alterSp (+ 2) >> return a else return b
+ret (a, b) f = trace "ret" $ if f then getSp >>= readWideMemory >>= setPc >> alterSp (+ 2) >> return a else return b
 
 reti :: Cpu s Int
-reti = return 16
+reti = trace "reti" $ return 16
 
 call :: (Int, Int) -> Bool -> Address -> Cpu s Int
 call (a, b) f r = if f then alterSp (flip (-) 2) >>= (\addr -> getPc >>= writeWideMemory addr) >> setPc r >> return a else return b
@@ -414,7 +478,7 @@ rst = call (16, 16) True
 {- CPU control -}
 
 nop :: Cpu s Int
-nop = return 4
+nop = trace "nop" $ return 4
 
 ccf :: Cpu s Int
 ccf = alterCarryFlag_ not >> return 4

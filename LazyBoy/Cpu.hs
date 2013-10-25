@@ -286,6 +286,9 @@ setHalfCarryFlag = setFlag 0x40
 checkAndSetZeroFlag :: Operand -> Cpu s ()
 checkAndSetZeroFlag x = setZeroFlag $ x == 0
 
+checkAndSetHalfCarryFlag :: Operand -> Operand -> Operand -> Cpu s ()
+checkAndSetHalfCarryFlag a b x = setHalfCarryFlag $ 0 /= (a `xor` b `xor` x) .&. 0x10
+
 --
 pushOperand :: Operand -> Cpu s ()
 pushOperand op = do

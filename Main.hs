@@ -22,6 +22,8 @@ loadRomIntoCpu = writeMemoryRegion 0x00
 loadRom :: String -> IO [Operand]
 loadRom f = B.readFile f >>= \s -> return (B.unpack s)
 
+executeCpu = fetch >>= execute >> executeCpu
+
 main :: IO ()
 main = do
 	[filename] <- getArgs
@@ -37,10 +39,8 @@ main = do
 	done
 
 	putStr "Loading ROM data into virtual environment..."
-	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData >> setPc 0x100 >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute >> fetch >>= execute)
-	let result = runST loadedCpu 
+	let loadedCpu = cpu >>= runCpu (loadRomIntoCpu romData >> setPc 0x100 >> executeCpu)
+	runST loadedCpu 
 	done
-
-	putStrLn $ "Loaded value: " ++ show result
 
 	G.display (G.InWindow "LazyBoy" (800, 600) (50, 50)) (G.makeColor 1.0 0.0 0.0 0.0) G.Blank
