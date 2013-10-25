@@ -29,8 +29,8 @@ getVarByOpCode :: OpCode -> Cpu s Operand
 getVarByOpCode = getVar . getRegByOpCode
 
 execute :: OpCode -> Cpu s Int
-execute op 
-	| op == 0x00 = nop
+execute op
+    | op == 0x00 = nop
 	| op == 0x01 = fetchWideImmediate >>= ldWI bReg cReg
 	| op == 0x02 = ldWM bReg cReg
 	| op == 0x03 = incW bReg cReg
@@ -75,9 +75,22 @@ execute op
 	| op == 0x2C = incR lReg
 	| op == 0x2D = decR lReg
 	| op == 0x2E = fetchImmediate >>= ldI lReg
+	| op == 0x30 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
+	| op == 0x31 = fetchWideImmediate >>= 
+	| op == 0x32 = ldWM hReg lReg >>= (\x -> alterHl (flip (-) 1) >> return x)
+	| op == 0x33 = alterSp (1 +) 
+	| op == 0x34 = getHl >>= incM
+	| op == 0x35 = getHl >>= decM
+	| op == 0x36 = getHl >>= (\addr -> fetchImmediate >>= writeMemory addr) >> return 12
+	| op == 0x37 = scf
 	| op == 0x38 = getCarryFlag >>= (\c -> fetchImmediate >>= jr (not c))
 	| op == 0x39 = getSp >>= addHL
 	| op == 0x3A = getHl >>= ldRM aReg >> alterHl_ (flip (-) 1) >> return 8
+	| op == 0x3B = alterSp (flip (-) 1)
+	| op == 0x3C = incR aReg
+	| op == 0x3D = decR aReg
+	| op == 0x3E = fetchImmediate >>= ldI aReg
+	| op == 0x3F = ccf
 	| op == 0x46 = getHl >>= ldRM bReg
 	| op <= 0x47 = ldRR bReg $ getRegByOpCode op
 	| op == 0x4E = getHl >>= ldRM cReg
@@ -248,6 +261,9 @@ sbc x = (alterAccumulator . (-)) x >>= checkAndSetZeroFlag >> return 4
 incW :: Register s -> Register s -> Cpu s Int
 incW x y = alterWideVar_ x y (+ 1) >> return 8
 
+incM :: Address -> Cpu s Int
+incM addr = alterMemory addr (+ 1) >> return 12
+
 decW :: Register s -> Register s -> Cpu s Int
 decW x y = alterWideVar_ x y (flip (-) 1) >> return 8
 
@@ -256,6 +272,9 @@ incR x = alterVar x (+ 1) >>= checkAndSetZeroFlag >> return 4
 
 decR :: Register s -> Cpu s Int
 decR x = alterVar x (flip (-) 1) >>= checkAndSetZeroFlag >> return 4
+
+decM :: Address -> Cpu s Int
+decM addr = alterMemory addr (flip (-) 1) >> return 12
 
 swap :: Operand -> Operand
 swap x = ((x .&. 0x0F) `shiftL` 4) .|. ((x .&. 0xF0) `shiftR` 4)
