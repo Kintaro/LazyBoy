@@ -255,7 +255,7 @@ add x = trace "add" $ do
 adc :: Operand -> Cpu s Int
 adc x = trace "adc" $ do
 	a <- getAccumulator
-	v <- getCarryFlag >>= \c -> if c then return (x + 1) else return x
+	v <- getCarryFlag >>= \c -> return (if c then x + 1 else x)
 	r <- (alterAccumulator . (+)) v
 	checkAndSetZeroFlag r
 	checkAndSetHalfCarryFlag v a r
@@ -279,7 +279,7 @@ sub x = trace "sub" $ do
 sbc :: Operand -> Cpu s Int
 sbc x = trace "sbc" $ do
 	a <- getAccumulator
-	v <- getCarryFlag >>= \c -> if c then return (x - 1) else return x
+	v <- getCarryFlag >>= \c -> return (if c then x - 1 else x)
 	r <-(alterAccumulator . (-)) v
 	checkAndSetZeroFlag r
 	checkAndSetHalfCarryFlag v a r
@@ -287,7 +287,9 @@ sbc x = trace "sbc" $ do
 	return 4
 
 incW :: Register s -> Register s -> Cpu s Int
-incW x y = alterWideVar_ x y (+ 1) >> return 8
+incW x y = trace "inc" $ do
+	alterWideVar_ x y (+ 1)
+	return 8
 
 incM :: Address -> Cpu s Int
 incM addr = trace "inc" $ do 
@@ -300,7 +302,8 @@ incM addr = trace "inc" $ do
 
 decW :: Register s -> Register s -> Cpu s Int
 decW x y = trace "dec" $ do
-	alterWideVar_ x y (flip (-) 1) >> return 8
+	alterWideVar_ x y (flip (-) 1)
+	return 8
 
 incR :: Register s -> Cpu s Int
 incR x = trace "inc" $ do
@@ -367,25 +370,49 @@ cp x = getVar aReg >>= (\a -> case () of
 {- Rotate / Shift -}
 
 shiftWithCarry :: Register s -> Int -> (Operand -> Int -> Operand) -> Cpu s Int
-shiftWithCarry r t f = getVar r >>= (\a -> setCarryFlag (testBit a t)) >> alterVar r (`f` 1) >>= checkAndSetZeroFlag >> setAddFlag False >> setHalfCarryFlag False >> return 8
+shiftWithCarry r t f = do
+	a <- getVar r
+	setCarryFlag (testBit a t)
+	r <- alterVar r (`f` 1)
+	checkAndSetZeroFlag r
+	setAddFlag False
+	setHalfCarryFlag False
+	return 8
 
 shiftThroughCarry :: Register s -> Int -> Int -> (Operand -> Int -> Operand) -> Cpu s Int
-shiftThroughCarry r t s f = getCarryFlag >>= (\c -> getVar r >>= (\a -> setCarryFlag (testBit a t)) >> alterVar_ r (`f` 1) >> alterVar r (\x -> if c then setBit x s else clearBit x s)) >>= checkAndSetZeroFlag >> setAddFlag False >> setHalfCarryFlag False >> return 8
+shiftThroughCarry r t s f = do
+	c <- getCarryFlag
+	a <- getVar r
+	setCarryFlag (testBit a t)
+	alterVar_ r (`f` 1)
+	res <- alterVar r (\x -> if c then setBit x s else clearBit x s)
+	checkAndSetZeroFlag res 
+	setAddFlag False
+	setHalfCarryFlag False
+	return 8
 
 rlca :: Cpu s Int
-rlca = shiftWithCarry aReg 7 shiftL >> return 4
+rlca = trace "rlca" $ do
+	shiftWithCarry aReg 7 shiftL
+	return 4
 
 rla :: Cpu s Int
-rla = shiftThroughCarry aReg 7 0 shiftL >> return 4
+rla = trace "rla" $ do
+	shiftThroughCarry aReg 7 0 shiftL
+	return 4
 
 rrca :: Cpu s Int
-rrca = shiftWithCarry aReg 0 shiftR >> return 4
+rrca = trace "rrca" $ do
+	shiftWithCarry aReg 0 shiftR
+	return 4
 
 rra :: Cpu s Int
-rra = shiftThroughCarry aReg 0 7 shiftR >> return 4
+rra = trace "rra" $ do
+	shiftThroughCarry aReg 0 7 shiftR
+	return 4
 
 rlc :: Register s -> Cpu s Int
-rlc x = shiftWithCarry x 7 shiftL 
+rlc x = trace "rlc" $ shiftWithCarry x 7 shiftL 
 
 rl :: Register s -> Cpu s Int
 rl x = shiftThroughCarry x 7 0 shiftL
@@ -464,16 +491,37 @@ jp :: (Int, Int) -> Bool -> Address -> Cpu s Int
 jp (a, b) f r = trace "jp" $ if f then setPc r >> return a else return b
 
 ret :: (Int, Int) -> Bool -> Cpu s Int
-ret (a, b) f = trace "ret" $ if f then getSp >>= readWideMemory >>= setPc >> alterSp (+ 2) >> return a else return b
+ret (a, b) f = trace "ret" $
+	if f then do
+		addr <- getSp
+		pc <- readWideMemory addr
+		setPc pc 
+		alterSp (+ 2)
+		return a
+	else 
+		return b
 
 reti :: Cpu s Int
 reti = trace "reti" $ return 16
 
 call :: (Int, Int) -> Bool -> Address -> Cpu s Int
-call (a, b) f r = if f then alterSp (flip (-) 2) >>= (\addr -> getPc >>= writeWideMemory addr) >> setPc r >> return a else return b
+call (a, b) f r = trace "call" $ 
+	if f then do
+		addr <- alterSp (flip (-) 2)
+		pc <- getPc
+		writeWideMemory addr pc
+		setPc r
+		return a
+	else
+		return b
 
 rst :: Address -> Cpu s Int
-rst = call (16, 16) True
+rst r = trace "rst" $ do
+	addr <- alterSp (flip (-) 2)
+	pc <- getPc
+	writeWideMemory addr pc
+	setPc r
+	return 16
 
 {- CPU control -}
 
@@ -481,13 +529,13 @@ nop :: Cpu s Int
 nop = trace "nop" $ return 4
 
 ccf :: Cpu s Int
-ccf = alterCarryFlag_ not >> return 4
+ccf = trace "ccf" $ alterCarryFlag_ not >> return 4
 
 scf :: Cpu s Int
-scf = setCarryFlag True >> return 4
+scf = trace "scf" $ setCarryFlag True >> return 4
 
 di :: Cpu s Int
-di = setVar ime False >> return 4
+di = trace "di" $ setVar ime False >> return 4
 
 ei :: Cpu s Int 
-ei = setVar ime True >> return 4
+ei = trace "ei" $ setVar ime True >> return 4
